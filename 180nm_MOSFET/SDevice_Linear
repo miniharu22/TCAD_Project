@@ -1,0 +1,131 @@
+#setdep @node|STRUCTURE@
+
+#define _CAR_    Electron
+
+#define _IALM_   IALMob(AutoOrientation)
+#define _DG_     eQuantumPotential
+#define _QC_     eQuantumPotential(AutoOrientation density)
+
+#define _Vdd_    0.7	
+#define _Vdsat_  0.7	
+#define _Vgg_    1.0	
+
+
+File {
+    Grid      = "n@node|STRUCTURE@_fps.tdr"
+    Parameter = "@parameter@"
+    Plot      = "@tdrdat@"
+    Current   = "@plot@"
+    Output    = "@log@"
+    }
+
+
+Electrode {
+    { Name="source"    Voltage=0.0 }
+    { Name="drain"     Voltage=0.0 }
+    { Name="gate"      Voltage=0.0 }
+    { Name="substrate" Voltage=0.0 }
+    }
+
+
+
+Physics {Fermi}
+
+Physics (Material= Silicon) {
+	_QC_
+	Mobility (
+	    Enormal(_IALM_) 
+	    HighFieldSaturation
+	    )
+    EffectiveIntrinsicDensity(OldSlotboom) 
+    Recombination(
+		SRH
+		Band2Band(Model = Hurkx)
+		)
+    } 
+
+
+Plot{
+    eDensity hDensity
+    TotalCurrent/Vector eCurrent/Vector hCurrent/Vector
+    eMobility hMobility
+    eVelocity hVelocity
+    eQuasiFermi hQuasiFermi
+    eTemperature Temperature * hTemperature
+    ElectricField/Vector Potential SpaceCharge
+    Doping DonorConcentration AcceptorConcentration
+    SRH Band2Band * AugerS
+    eGradQuasiFermi/Vector hGradQuasiFermi/Vector
+    eEparallel hEparallel eENormal hENormal
+    BandGap
+    andGapNarrowing
+    Affinity
+    ConductionBand ValenceBand
+    eBarrierTunneling hBarrierTunneling * BarrierTunneling
+    eTrappedCharge hTrappedCharge
+    eGapStatesRecombination hGapStatesRecombination
+    eDirectTunnel hDirectTunnel
+    }
+
+
+Math {
+    xtrapolate
+    Derivatives
+    RelErrControl
+    Digits=5
+    RHSmin=1e-10
+    Notdamped=100
+    Iterations=50
+    DirectCurrent
+    ExitOnFailure
+    NumberOfThreads= 8
+
+    Method=pardiso 
+
+    RefDens_eGradQuasiFermi_ElectricField= 1e12
+    RefDens_hGradQuasiFermi_ElectricField= 1e12
+  }
+
+Solve {
+    Coupled ( Iterations=100 LineSearchDamping=1e-8 ){ Poisson _DG_ }
+    Coupled { Poisson _CAR_ _DG_ }
+    Save ( FilePrefix="n@node@_init" )
+
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.5 
+        MinStep=1e-6 MaxStep=0.5 
+        Goal { Name="drain" Voltage=0.05 } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+    Save ( FilePrefix="n@node@_VdLin" )
+
+    NewCurrentPrefix="IdVg_VdLin_" 
+
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.05 
+        Goal { Name="gate" Voltage=-0.3 } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+    Plot ( FilePrefix= "n@node@_GIDL" )
+
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.05 
+        Goal { Name="gate" Voltage=0.0 } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+    Plot ( FilePrefix= "n@node@_Vg_0_0V" )
+
+    Quasistationary( 
+        DoZero 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.05 
+        Goal { Name="gate" Voltage=_Vdsat_ } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+    Plot ( FilePrefix= "n@node@_Vg_VddV" )
+
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.05 
+        Goal { Name="gate" Voltage=_Vgg_ } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+    Plot ( FilePrefix= "n@node@_Vg_VggV" )
+    }
