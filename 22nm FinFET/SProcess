@@ -1,0 +1,375 @@
+## Layout Setting
+
+fset Type  @Domain@
+icwb domain= "@Domain@"
+
+icwb gds.file = finfet_inv.gds \
+    cell = FinFET \
+    layer.numbers = {1:0 2:0 3:0 4:0 5:0 6:0 7:0 8:0} \
+    layers.names = {l1 l2 l3 l4 l5 l6 l7 l8} \
+    scale = 1e-3
+
+fset DIM [icwb dimension]
+
+LogFile "icwb: dimension -> $DIM"
+
+fset Ymin [icwb bbox left ]
+fset Ymax [icwb bbox right]
+fset Zmin [icwb bbox back ]
+fset Zmax [icwb bbox front]
+
+
+
+## Parameter Setting
+
+fset PolyPitch 0.130
+
+fset FinPitch  0.05
+
+fset Tsub       1.0         # Subtrate Thickness  
+
+fset HFin       0.04        # Fin Height  
+fset WFin       0.017       # Fin Width
+fset Lg         0.025       # Gate Length
+
+fset STI_depth  0.15        # STI Trench Depth  
+fset ScrOxT     0.005       # Screen Oxide Thickness  
+fset ScrOxT2    0.002       # Screen Oxide (PTS) Thickness  
+
+fset dumOxT     0.003       # Dummy Dielectric Thickness 
+fset Tpoly      0.08        # Dummy Gate Thickness
+
+fset gox        0.001       # Oxide Thickness  
+fset THK        0.002       # HfO2 Thickness  
+
+fset Tsp        0.002       # Spacer offset Thickness 
+fset Lsp        0.0125      # Spacer Thickness  
+
+
+
+## Control Factor Setting
+
+math numThreads= 8
+math coord.ucs
+
+AdvancedCalibration 
+SiGe_and_Stress_Effect 1 1 1 0
+
+pdbSet InfoDefault 1
+
+pdbSet Mechanics StressHistory 1 # 활성화 
+pdbSet Mechanics EtchDepoRelax 0 # 비활성화 
+
+pdbSet ImplantData ResistSkip 1  # 활성화 
+pdbSet ImplantData BackBoundary  Reflect
+pdbSet ImplantData LeftBoundary  Reflect
+pdbSet ImplantData FrontBoundary Reflect
+pdbSet ImplantData RightBoundary Reflect
+pdbSet ImplantData DoseControl WaferDose
+
+pdbSet Grid KMC UseLines 1
+
+pdbSet Math diffuse 3D ILS.hpc.mode 4
+
+
+## Wafer Setting
+
+line x location= 0.0 tag= top
+line x location= 0.004  
+line x location= 0.01
+line x location= $Tsub tag= bottom
+
+line y location= $Ymin spa= 0.02 tag= left
+line y location= [expr ($Ymax-$Ymin)/2.0]
+line y location= $Ymax spa= 0.02 tag= right
+
+line z location= $Zmin tag= back
+line z location= [expr $WFin/5.0]
+line z location= [expr $WFin/2.0]
+line z location= $WFin
+line z location= [expr 2*$WFin+0.0033]
+line z location= $Zmax tag= front
+
+region Silicon substrate \
+    xlo= top xhi= bottom \
+    ylo= left yhi= right \
+    zlo= back zhi= front
+
+init field= Boron concentration= 1e15 \
+    wafer.orient= { 0 0 1 } notch.direction= { 1 1 0 } 
+
+mgoals resolution= 1.0/3.0 accuracy= 1e-4
+
+pdbSet Grid SnMesh max.box.angle.3d 175
+
+grid set.min.normal.size= 0.005 \
+    set.normal.growth.ratio.3d= 2.0 \
+    set.min.edge= 1e-7 set.max.points= 1000000 \
+    set.max.neighbor.ratio= 1e6   
+
+icwb.create.mask layer.name= l1 name= Fin_refine polarity= positive
+
+refinebox name= fin mask= Fin_refine \
+    extend= 0.1 extrusion.min= -0.0 extrusion.max= $Tsub \
+    xrefine= "0.5"  yrefine= "$Lg/(2.0)" zrefine= "$WFin/(2.0)" 
+
+refinebox name= FinIF mask= Fin_refine \
+    extend= 0.1 extrusion.min= -0.01 extrusion.max= $STI_depth \
+    min.normal.size= 0.001 normal.growth.ratio= 2.0 \
+    interface.materials= {Silicon Oxide Nitride} 
+
+
+## Fin Patterning
+
+mater add name= PadOx new.like= Oxide alt.matername= Oxide
+deposit material= {PadOx}   type= anisotropic  rate= {0.01} time= 1.0
+
+deposit material= {Nitride} type= anisotropic  rate= 0.10 time= 1.0
+
+icwb.create.mask layer.name= l1 name= Fin polarity= negative
+photo mask= Fin thickness= 0.02<um>
+
+etch material= {Nitride} type= anisotropic rate= {0.1} time= 1.0
+
+strip Photoresist
+
+etch material= {PadOx} type= anisotropic rate= {0.01} time= 1.0
+
+etch material= {Silicon} type= trapezoidal rate= $STI_depth time= 1.0 angle= 88.0
+
+
+## STI Process
+
+mater add name= STIOx new.like= Oxide alt.matername= Oxide
+deposit material= {STIOx} type= fill coord= {-1.0*($STI_depth+0.1)}
+
+etch type= cmp coord= -0.11 material= all
+
+strip Nitride
+strip PadOx
+
+etch type= cmp material= {STIOx} coord= 0.04 
+
+
+## P-Well Process
+
+refinebox name= Vth mask= FinMask \
+    extend= 0.005 extrusion.min= -0.0 extrusion.max= [expr 2*$HFin] \
+    xrefine= "0.005"  yrefine= "$PolyPitch/(8.0)" zrefine= "$FinPitch/(8.0)"
+
+mater add name= ScrOx new.like= Oxide alt.matername= Oxide
+deposit material = {ScrOx} type= isotropic rate= $ScrOxT time= 1.0
+
+implant Boron dose= 1e13 energy= 180 tilt= 0.0
+implant Boron dose= 1e13 energy= 60  tilt= 0.0
+implant Boron dose= 1e13 energy= 15  tilt= 0.0
+
+temp_ramp name= well temperature= 600<C>  time= 0.067<min> t.final= 900
+temp_ramp name= well temperature= 900<C>  time= 0.033<min> t.final= 1050
+temp_ramp name= well temperature= 1050<C> time= 0.2<min>   t.final= 750
+temp_ramp name= well temperature= 750<C>  time= 0.1<min>   t.final= 600
+
+diffuse stress.relax temp.ramp= well
+
+etch material= {ScrOx} type= cmp coord= $HFin 
+
+
+
+## Dummy Gate Process
+
+mater add name= Dummydielectric new.like= Oxide alt.matername= Oxide
+deposit material= {Dummydielectric} type= isotropic rate= {$dumOxT} time= 1.0
+
+mater add name= Dummygate new.like= Poly alt.matername= Poly
+deposit material= {Dummygate} type= anisotropic rate= $Tpoly+$gox+$HFin time= 1.0
+
+etch material= {Dummygate} type= cmp coord= -$Tpoly-$gox
+
+
+
+## PTS Doping Process
+
+refinebox name= HaloImp mask= FinMask \
+    extend= 0.005 extrusion.min= -$gox-2*$dumOxT extrusion.max= 1.5*$HFin \
+    xrefine= "0.002"  yrefine= "$PolyPitch/(40.0)" zrefine= "$FinPitch/(20.0)" 
+
+icwb.create.mask layer.name= l2 name= Gate polarity= negative
+photo mask= Gate thickness= 0.1<um>
+
+etch material= {Dummygate} type= anisotropic rate= 1.0 time= 1.0
+
+strip Photoresist
+
+etch material= {Dummydielectric} type= anisotropic rate= 1.0 time= 1.0
+
+deposit material= {Oxide} type= isotropic  rate= {1.0} time= $ScrOxT2
+
+deposit material= {Nitride} type= isotropic  rate= {$Tsp} time= 1.0
+etch nitride type= anisotropic rate= [expr $ScrOxT2+$HFin] time= 1.1
+
+pdbSetDoubleArray Silicon Carbon Conc.Strain {0 0 1 -0.432}
+pdbSetDouble Silicon Mechanics TopRelaxedNodeCoord 0.05e-4
+
+implant Boron dose= 2.6e+13 energy= 5 tilt= 30 rotation= 30  
+implant Boron dose= 2.6e+13 energy= 5 tilt= 30 rotation= 150 
+implant Boron dose= 2.6e+13 energy= 5 tilt= 30 rotation= 210 
+implant Boron dose= 2.6e+13 energy= 5 tilt= 30 rotation= 330 
+ 
+implant Carbon dose= 2.0e15 energy= 2.5 tilt= 45 rotation= 0.0 
+implant Carbon dose= 2.0e15 energy= 2.5 tilt= 45 rotation= 180.0
+
+
+
+## LDD Process
+
+icwb.create.mask layer.name= l2 name= LDD_refine polarity= positive
+
+refinebox name= ExtImp mask= LDD_refine \
+    extend= 0.005 extrusion.min= 0.0 extrusion.max= $HFin \
+    xrefine= "0.001"  yrefine= "$PolyPitch/(40.0)" zrefine= "$FinPitch/(20.0)" \
+    Silicon 
+
+implant Arsenic dose= 1.0e15 energy= 4.0 tilt= 45 rotation= 0.0
+implant Arsenic dose= 1.0e15 energy= 4.0 tilt= 45 rotation= 180.0
+
+diffuse temperature= 750<C> time= 1.0<min>
+
+
+
+## Spacer Process
+
+refinebox name= EpiRB \
+    min= "-6.0*$ScrOxT2 $Ymin {$Zmax-1.5*$WFin}" \
+    max= "1.0*$HFin {$Ymax-$Lg} $Zmax" \
+    xrefine= "0.004"  yrefine= "$PolyPitch/(30.0)" zrefine= "$FinPitch/(30.0)"
+
+deposit material= {Nitride} type= isotropic rate= {$Lsp} time= 1.0
+
+etch material= {Nitride Oxide} type= anisotropic rate= {$HFin} time= 1.5
+
+
+
+## Source/Drain Epitaxy Process
+
+mgoals repair.angle= 5
+
+pdbSet KMC Epitaxy True                             # 활성화
+pdbSet KMC MaxYum 10e-3
+pdbSet KMC MaxZum 10e-3
+pdbSet KMC PeriodicBC.Y false                       # 비활성화
+pdbSet KMC PeriodicBC.Z false                       # 비활성화
+pdbSet KMC Simplify.Geometry 6e-5
+
+pdbSet LKMC Epitaxy.Model Coordinations.Planes
+pdbSet LKMC Post.Epi.Mesh.Update true               # 활성화
+pdbSet LKMC Epitaxy.Cleanup false                   # 비활성화
+pdbSet LKMC Boundary.Repair false                   # 비활성화  
+pdbSet LKMC Enhance.Filling 1                       # 활성화  
+pdbSet LKMC Min.Epi.Deposit.Thickness 1.0e-3
+
+pdbSetBoolean LKMC Boundary.Merge.Before.Doping 1   
+pdbSet Grid Interpolation.Search.Dist 1e-8
+
+set EpiDoping_init  "Arsenic= 1.5e20 Carbon= 1.5e21"
+set EpiDoping_final "Arsenic= 1.5e20 Carbon= 1.5e21"
+
+temp_ramp name= epi temperature= 450<C> t.final= 750<C> time= 5.0<min> \
+    Epi epi.doping= $EpiDoping_init epi.doping.final= $EpiDoping_final \
+    epi.model= 1
+
+diffuse temp_ramp= epi lkmc
+
+
+
+## Source/Drain Doping Process
+
+refinebox name= ChannelIF mask= Fin_refine \
+    extend= 0.001 extrusion.min= -$gox extrusion.max= $HFin \
+    min.normal.size= 0.0005 normal.growth.ratio= 2.0 \
+    interface.materials= {Silicon Oxide} 
+
+implant Arsenic dose= 5.0e+15 energy= 15.0 tilt= 45 rotation= 0
+
+# Spike RTA
+temp_ramp name= spike1000 time= 2<s>     ramprate= 200<C/s>    temperature= 600.0
+temp_ramp name= spike1000 time= 0.1<s>   ramprate=   0<C/s>    temperature= 1000.0
+temp_ramp name= spike1000 time= 4<s>     ramprate= -75<C/s>    temperature= 1000.0
+
+diffuse temp.ramp= spike1000 stress.relax
+
+# Laser Annealing  
+temp_ramp name= laser time= 1e-03<s> ramprate= 6e+05<C/s>  temperature= 600.0
+temp_ramp name= laser time= 1e-06<s> ramprate= 0<C/s>      temperature= 1200.0
+temp_ramp name= laser time= 1e-03<s> ramprate= -5e+04<C/s> temperature= 1200.0
+
+diffuse temp.ramp= laser stress.relax
+
+
+## HKMG Process
+
+mater add name= ILD new.like= Oxide alt.matername= Oxide
+deposit material= {ILD} type= fill coord= -0.1
+
+etch type= cmp coord= -0.007 material= all
+
+strip Dummygate
+strip Dummydielectric
+
+icwb.create.mask layer.name= l2 name= MetalGate polarity= positive
+photo mask= MetalGate thickness= 0.1<um>
+
+deposit material= HfO2 type= anisotropic rate= $THK time= 1.0
+
+deposit material= TiNitride type= anisotropic rate= 0.1 time= 1.0
+
+strip Photoresist
+
+etch type= cmp material= all coord= -0.007
+
+deposit material= Copper type= isotropic rate= 0.12*$HFin time= 1.0 \
+    selective.materials= {Silicon SiliconGermanium}
+
+
+
+## Final Meshing
+
+refinebox clear
+line clear
+
+pdbSet Grid AdaptiveField Refine.Abs.Error 1e37
+pdbSet Grid AdaptiveField Refine.Rel.Error 1e10
+pdbSet Grid AdaptiveField Refine.Target.Length 100.0
+
+grid Adaptive set.Delaunay.type= boxmethod set.max.points= 2000000 \
+    set.max.neighbor.ratio= 1e6 \
+    set.min.normal.size= 1.0 \
+    set.normal.growth.ratio.2d= 1.0
+
+refinebox name= DF mask= Fin_refine \
+	extend= 0.02 extrusion.min= -0.004-$THK-$gox extrusion.max= $HFin+0.01 \
+	refine.fields= {NetActive} def.max.asinhdiff= 1.0 \
+    refine.max.edge= "0.01 0.01 0.01" refine.min.edge= "0.004 0.004 0.004" \ adaptive
+		  
+refinebox name= DG mask= Gate \
+    extend= 0.005 extrusion.min= -$gox extrusion.max= $HFin+0.01 \
+    xrefine= "0.005"  yrefine= "$PolyPitch/25.0" zrefine= "$FinPitch/10.0" materials= {Silicon SiliconGermanium}
+
+refinebox name= DeviceIF mask= Gate \
+    extend= 0.01 extrusion.min= -0.004-$THK-$gox extrusion.max= $HFin+0.01 \
+    min.normal.size= 0.0004/$fd normal.growth.ratio= 1.5 interface.materials= {Silicon Oxide SiliconGermanium Oxide }
+		  
+grid remesh
+
+
+
+## Contact
+
+transform reflect front
+transform reflect right
+
+contact name= "gate" x= 0.018 y= 0.07 z= 0.01 point TiNitride 
+
+contact name= "source" region= Copper_1.1
+contact name= "drain" region= Copper_1.2
+
+contact name= "substrate" bottom Silicon  
