@@ -1,0 +1,152 @@
+#setdep @node|sprocess@
+
+#define _DG_     eQuantumPotential
+#define _QC_     eQuantumPotential(AutoOrientation density)
+#define _CAR_    Electron
+#define _WF_     4.2
+
+#define _Vdd_    0.7	
+#define _Vdsat_  0.7	
+#define _Vgg_    1.0
+
+Device "MOS" {
+    File {
+        Grid      = "n@node|sprocess@_full_fps.tdr"
+        Piezo     = "n@node|sprocess@_full_fps.tdr"
+        Parameter = "@parameter@"
+        Plot      = "@tdrdat@"
+        Current   = "@plot@"
+        }
+
+    Electrode {
+        { Name= "gate"      Voltage= 0.0 workfunction= _WF_ }
+        { Name= "source"    Voltage= 0.0 }
+        { Name= "drain"     Voltage= 0.0 }
+        { Name= "substrate" Voltage= 0.0 }
+        }
+
+    Physics {Fermi}  
+
+    Physics (Material="Silicon") {
+	    _QC_
+
+        EffectiveIntrinsicDensity(OldSlotboom)
+
+	    Mobility (
+		     (
+			    IALMob(AutoOrientation)
+			    RPS     
+			    NegInterfaceCharge (SurfaceName="s1")  
+			    PosInterfaceCharge (SurfaceName="s1")  
+		        )
+		    HighFieldSaturation
+	        )
+
+	    Recombination(SRH)
+
+	    eMultivalley(MLDA kpDOS -density)
+
+	    Piezo ( 
+            Model (
+		        Mobility (
+			        saturationfactor=0.2
+			        eSubband(Fermi EffectiveMass Scattering(MLDA))
+		            )
+		        DOS(eMass hMass)
+		        DeformationPotential(Minimum ekp hkp)
+	            ) 
+            )
+        }
+    } * End of Device{}
+
+
+Plot{
+    eDensity hDensity
+    TotalCurrent/Vector eCurrent/Vector hCurrent/Vector
+    eMobility hMobility
+    eVelocity hVelocity
+    eQuasiFermi hQuasiFermi
+    eTemperature Temperature * hTemperature
+    ElectricField/Vector Potential SpaceCharge
+    Doping DonorConcentration AcceptorConcentration
+    SRH Band2Band * Auger
+    AvalancheGeneration eAvalancheGeneration hAvalancheGeneration
+    eGradQuasiFermi/Vector hGradQuasiFermi/Vector
+    eEparallel hEparallel eENormal hENormal
+    BandGap 
+    BandGapNarrowing
+    Affinity
+    ConductionBand ValenceBand
+    eBarrierTunneling hBarrierTunneling * BarrierTunneling
+    eTrappedCharge  hTrappedCharge
+    eGapStatesRecombination hGapStatesRecombination
+    eDirectTunnel hDirectTunnel
+    eQDDGamma hQDDGamma
+    *--Stress related data
+    StressXX StressYY StressZZ StressXY StressXZ StressYZ
+  }
+
+Math {
+  Extrapolate
+  Derivatives
+  RelErrControl
+  Digits=5
+  RHSmin=1e-10
+  Notdamped=100
+  Iterations=50
+  DirectCurrent
+  ExitOnFailure
+  NumberOfThreads= 8
+
+  Method=Blocked
+  SubMethod=Super
+  ACMethod=Blocked
+  ACSubMethod=Super
+
+  TensorGridAniso
+  StressMobilityDependence= TensorFactor
+  Surface "s1" (
+    MaterialInterface= "HfO2/Oxide"
+    )
+
+  RefDens_eGradQuasiFermi_ElectricField= 1e16
+  RefDens_hGradQuasiFermi_ElectricField= 1e16
+  }
+
+
+File {
+    ACExtract= "@acplot@"
+    output=   "@log@" 
+    }
+
+System {
+    MOS nmos1 (gate=g drain=d source=s substrate=b)
+    Vsource_pset  vg(g 0) { dc= 0}
+    Vsource_pset  vd(d 0) { dc= 0}
+    Vsource_pset  vs(s 0) { dc= 0}
+    Vsource_pset  vb(b 0) { dc= 0}
+    }
+
+Solve {
+    Coupled(Iterations= 1000 LineSearchDamping= 1e-8){ Poisson eQuantumPotential hQuantumPotential } 
+    Coupled{ Poisson eQuantumPotential hQuantumPotential Electron Hole } 
+
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.5
+        Goal { Parameter=vg.dc Voltage=@<-1.0*VgRange>@ } 
+        ){ Coupled { Poisson _CAR_ _DG_ } }
+
+    NewCurrentPrefix="CV_" 
+  
+    Quasistationary( 
+        InitialStep=1e-2 Increment=1.2 
+        MinStep=1e-8 MaxStep=0.1 
+        Goal { Parameter=vg.dc Voltage=_Vgg_ } 
+        ){ ACCoupled (
+            StartFrequency=@Freq@ EndFrequency=@Freq@ NumberOfPoints=1 Decade
+            Node(s d b g) Exclude(vs vd vb vg) 
+            ACCompute (Time = (Range = (0 1)  Intervals = 50))
+            ) { Poisson _CAR_ _DG_ }
+            }
+    }
