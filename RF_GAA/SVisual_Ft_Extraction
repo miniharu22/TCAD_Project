@@ -1,0 +1,136 @@
+##  Load Library
+
+#setdep @previous@
+load_library extract
+load_library rfx
+
+
+## Create Two-Port Network Dataset
+rfx::Load -dataset "ACPLT" -file "RF_@acplot@" -port1 g -port2 d -biasport "v(g)" 
+
+## Create Y & h parameter Dataset versus frequency
+rfx::CreateDataset -dataset "2port_YdB_freq" -xaxis "frequency" -rfmatrix "Y" 
+rfx::CreateDataset -dataset "2port_HdB_freq" -xaxis "frequency" -rfmatrix "H" -dB 20
+
+## ft Extraction
+rfx::GetFt -out Ft0 -method "unit-gain-point" -scale 1e9 -dataset "bias" -slopedataset "h21_slope_freq"
+
+puts "Cutoff frequencies= $Ft0(ft)"
+puts "Bias Points= $Ft0(bias)"
+
+## Visualization Setting
+set N     @node@
+set i     @node:index@
+
+set COLORS  [list brown purple red orange yellow green blue magenta violet black]
+set NCOLORS [llength $COLORS]
+
+set SYMBOL   [list square circle diamond squaref circlef diamondf plus x]
+set NSYMBOLS [llength $SYMBOL]
+set symbol   [lindex  $SYMBOL [expr $i%$NSYMBOLS]]
+
+
+## h21[dB] vs Frequency Plot
+# Set the winodw Style to 'grid'
+windows_style -style grid
+
+# Check if the plot named 'Plot_h21_dB_Freq' already exists
+if {[lsearch [list_plots] Plot_h21_dB_Freq] == -1} {
+
+    # Create a new 1D plot
+    create_plot -1d -name Plot_h21_dB_Freq
+
+    # Unlink all plots to avoid synchronization
+	link_plots [list_plots] -unlink
+
+    # Create a 0 dB reference line across all frequency points
+	set 0dB [list]
+	foreach fq $rfx::freq {
+		lappend 0dB 0.0
+	}
+
+    # Create dataset variables for plotting the 0 dB line
+	create_variable -name "0dB" -dataset "hUnityGain" -values $0dB
+	create_variable -name "frequency" -dataset "hUnityGain" -values $rfx::freq
+
+    # Create the 0 dB line curve
+	create_curve -name 0dBline -dataset "hUnityGain" -axisX "frequency" -axisY "0dB"
+
+    # Set visual properties of the 0 dB line
+	set_curve_prop 0dBline -label "0 dB line" -color black -line_style dash -line_width 3
+
+    # Set overall plot properties
+	set_plot_prop -title "|h<sub>21</sub>| \[dB\] Vs Frequency" -title_font_size 20 -show_legend -show_grid
+
+    # Set X-axis (Frequency) properties
+	set_axis_prop -axis x -title {Frequency [Hz]} -scale_format scientific -title_font_size 16 \
+        -scale_font_size 14 -type log
+
+    # Set Y-axis (Gain in dB) properties
+	set_axis_prop -axis y -title "|h<sub>21</sub>| \[dB\]" -title_font_size 16 -scale_font_size 14 \
+        -type linear
+
+    # Set legend properties
+	set_legend_prop -label_font_size 12 -location top_right -label_font_att bold
+    }
+
+# Loop through each bias point and plot corresponding h21[dB] vs Frequency curve
+for { set i $rfx::i_biasstart } { $i <= $rfx::i_biasend } { incr i } {
+
+    # Get the bias point voltage
+	set BiasPoint [lindex $rfx::bias $i]
+
+    # Choose a color for this curve based on index
+	set color     [lindex $COLORS [expr $i%$NCOLORS]]
+	
+    # Select the target plot
+	select_plots Plot_h21_dB_Freq
+
+    # Create the curve for |h21| in dB for this bias point
+	create_curve -name Abs_h21_dB($N,$i) -dataset 2port_HdB_freq -axisX "bias_$i frequency" -axisY "bias_$i h21_Abs_20dB"
+
+    # Set properties of the curve: label, color, line style and width
+	set_curve_prop Abs_h21_dB($N,$i) -label "V<sub>gs</sub>=[format %.2f $BiasPoint]" \
+        -color $color -line_style solid -line_width 3
+    }
+
+## ft vs Bias Plot
+# Check if the plot named 'Plot_fts' already exists
+if {[lsearch [list_plots] Plot_fts] == -1} {
+
+    # Create a new 1D plot named 'Plot_fts'
+    create_plot -1d -name Plot_fts
+
+    # Unlink this plot from others to keep it independent
+    link_plots [list_plots] -unlink
+
+    # Set overall plot properties: title, font size, grid and legend
+    set_plot_prop -title "f<sub>t</sub> Vs V<sub>gs</sub>" -title_font_size 20 -show_legend -show_grid
+
+    # Set X-axis properties: Gate voltage in linear scale
+    set_axis_prop -axis x -title {Gate Voltage [V]} -title_font_size 16 -scale_font_size 14 -type linear
+
+    # Set Y-axis properties: f_t in GHz, also in linear scale
+    set_axis_prop -axis y -title {f<sub>t</sub> [GHz]} -title_font_size 16 -scale_font_size 14 -type linear
+
+    # Set legend properties: font size, bold style, and location
+    set_legend_prop -label_font_size 12 -label_font_att bold -location bottom_right
+    }
+
+# Select the 'Plot_fts' plot for plotting the new curve
+select_plots Plot_fts
+
+# Create a curve named 'ft0(N)' from the 'bias' dataset
+# X-axis: bias (Vgs), Y-axis: ft (unit-gain frequency)
+create_curve -name ft0($N) -dataset "bias" -axisX bias -axisY ft
+
+# Set properties for the ft0(N) curve: label, color, style, marker settings
+set_curve_prop ft0($N) -label "unit-gain-point " -color blue -line_style solid \
+    -line_width 3 -show_markers -markers_size 10 -markers_type $symbol
+
+
+## Extract Peak value of ft
+lib::SetInfoDef 1	
+
+ext::ExtractExtremum -out ftPeak0    -name "out" -x $Ft0(bias) -y $Ft0(ft) -type "max"    -f "%.2f"
+ext::ExtractValue    -out Vg_ftPeak0 -name "out" -x $Ft0(ft)   -y $rfx::bias -xo $ftPeak0 -f "%.2f"
